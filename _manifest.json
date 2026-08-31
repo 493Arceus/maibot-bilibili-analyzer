@@ -1,0 +1,52 @@
+{
+  "manifest_version": 2,
+  "version": "1.0.5",
+  "name": "Bilibili 内容解析",
+  "description": "自动解析 Bilibili 视频、番剧、直播、专栏和动态，并支持视频搜索",
+  "author": {
+    "name": "493Arceus",
+    "url": "https://github.com/493Arceus"
+  },
+  "license": "MIT",
+  "urls": {
+    "repository": "https://github.com/493Arceus/maibot-bilibili-analyzer",
+    "homepage": "https://github.com/493Arceus/maibot-bilibili-analyzer",
+    "documentation": "https://github.com/493Arceus/maibot-bilibili-analyzer#readme",
+    "issues": "https://github.com/493Arceus/maibot-bilibili-analyzer/issues"
+  },
+  "host_application": {
+    "min_version": "1.2.0",
+    "max_version": "1.2.99"
+  },
+  "sdk": {
+    "min_version": "2.7.1",
+    "max_version": "2.99.99"
+  },
+  "dependencies": [
+    {
+      "type": "python_package",
+      "name": "aiohttp",
+      "version_spec": ">=3.12.14,<4"
+    }
+  ],
+  "capabilities": [
+    "send.text",
+    "send.hybrid"
+  ],
+  "i18n": {
+    "default_locale": "zh-CN",
+    "locales_path": "_locales",
+    "supported_locales": [
+      "zh-CN"
+    ]
+  },
+  "id": "mengshouer.analysis-bilibili",
+  "plugin_type": "extension",
+  "display": {
+    "icon": {
+      "type": "lucide",
+      "value": "video",
+      "background": "#E5484D"
+    }
+  }
+}
