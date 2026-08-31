@@ -60,7 +60,7 @@ python -m pip install -r requirements.txt
 安装后启动 MaiBot，或等待插件文件 watcher 自动重载。正常加载时可以看到类似日志：
 
 ```text
-插件 mengshouer.analysis-bilibili v1.0.5 加载成功
+插件 mengshouer.analysis-bilibili v1.0.6 加载成功
 插件 mengshouer.analysis-bilibili 注册完成
 Bilibili 解析插件已加载
 ```
@@ -120,15 +120,14 @@ QQ 中直接分享的 Bilibili 小程序卡片也会自动检查。即使 `analy
 
 推荐通过 MaiBot WebUI 修改配置。不要把包含真实用户 ID、群 ID 或网络设置的运行配置提交到公开仓库。
 
-除 `[plugin]` 外，下列 `analysis_*` 选项都直接位于 TOML 根级，不属于 `[general]` 配置节。`1.0.2` 已修复 WebUI 将这些顶层字段错误提交到 `general` 分区、导致布尔开关提示保存成功但值没有变化的问题；当前 `1.0.5` 会从平台卡片元数据读取 QQ 小程序的精确链接。
-
-下面是使用脱敏示例值的完整配置示例：
+从 `1.0.6` 开始，所有 `analysis_*` 选项正式归入 `[analysis]`，`[plugin]` 只保存插件启用状态和配置版本。下面是使用脱敏示例值的完整配置示例：
 
 ```toml
 [plugin]
 enabled = true
-config_version = "1.0.5"
+config_version = "1.0.6"
 
+[analysis]
 analysis_images_size = ""
 analysis_cover_images_size = ""
 analysis_whitelist = []
@@ -145,6 +144,12 @@ analysis_trust_env = false
 analysis_request_timeout = 20.0
 ```
 
+升级时无需手动搬移标准旧配置。插件会识别 `1.0.5` 及更早版本位于 TOML 根级的 14 个固定 `analysis_*` 字段；在 MaiBot Runner 2.7.1 的版本升级重建中，临时的旧格式默认骨架会先保住这些字段的已有值，插件归一化随后将其迁入 `[analysis]` 并移除旧根级键。未知根级字段不会被当作分析配置迁移。全新安装也会先经过同一临时骨架，再以正式的 `[analysis]` 结构初始化配置；已经是 `1.0.6` 的嵌套配置在同版本加载和普通热更新时保持嵌套结构。
+
+不要长期保留根级和 `[analysis]` 并存的混合格式，也不要依赖它解决冲突。同版本直接归一化时，已存在的 `[analysis]` 字段优先；但发生版本升级重建时，Runner 2.7.1 只从旧配置复制最新默认骨架中仍存在且类型匹配的字段，混合配置中的 `[analysis]` 不在该临时骨架内，其值不保证被保留。升级前应使用纯旧根级格式，升级后只使用 `[analysis]`。
+
+`1.0.2` 曾通过根级字段的数据路径修复 WebUI 将开关错误提交到 `general` 分区的问题；`1.0.6` 改用正式嵌套配置，并针对 Runner 2.7.1 的版本重建流程运输旧根级字段。
+
 ### `[plugin]`
 
 #### `enabled`
@@ -157,9 +162,13 @@ analysis_request_timeout = 20.0
 #### `config_version`
 
 - 类型：字符串
-- 默认值：`"1.0.5"`
+- 默认值：`"1.0.6"`
 
 配置结构版本，由插件和运行时用于配置校验。除非插件升级说明明确要求，否则不要手动修改。
+
+### `[analysis]`
+
+以下字段都写在 `[analysis]` 配置节中。
 
 ### 图片配置
 
@@ -195,6 +204,7 @@ analysis_request_timeout = 20.0
 只为指定内容类型显示图片。例如：
 
 ```toml
+[analysis]
 analysis_display_image = false
 analysis_display_image_list = ["video", "bangumi"]
 ```
@@ -224,6 +234,7 @@ analysis_display_image_list = ["video", "bangumi"]
 示例：
 
 ```toml
+[analysis]
 analysis_whitelist = ["10000001"]
 analysis_group_whitelist = ["20000001", "20000002"]
 ```
@@ -245,6 +256,7 @@ analysis_group_whitelist = ["20000001", "20000002"]
 示例：
 
 ```toml
+[analysis]
 analysis_whitelist = []
 analysis_group_whitelist = []
 analysis_blacklist = ["10000002"]
@@ -267,10 +279,10 @@ analysis_group_blacklist = ["20000003"]
 
 控制同一聊天流中重复内容的抑制：
 
-- 大于 `0`：同一个规范化链接在指定秒数内只解析一次。
-- 等于 `0`：只记住上一条已解析链接；连续发送同一链接时抑制，期间解析其他链接后可以再次解析原链接。
+- 大于 `0`：从首次记录起，同一个规范化链接在指定秒数内只解析一次；被抑制的重复消息不会续期。
+- 等于 `0`：每个聊天流只记住上一条已解析链接。按 `A / A / B / A` 发送时，重复判定依次为 `false / true / false / false`。
 
-缓存按聊天流隔离，群聊和私聊之间不会互相影响。
+缓存按聊天流隔离，群聊和私聊之间不会互相影响。为避免长期运行时无限增长，缓存最多保留 1024 个聊天流，每个聊天流最多保留 128 个规范化 URL：访问流时会刷新外层 LRU 顺序，超过聊天流上限会确定性淘汰最久未使用的流；TTL 大于 `0` 时，单个聊天流超过 URL 上限会按记录顺序淘汰最早的 URL。当前访问的聊天流每次都会检查过期 URL；此外，插件最多每 60 秒执行一次全局过期清理，以移除非活跃聊天流中的过期记录。普通配置热更新和插件卸载都会清空缓存并重置全局清理时钟。
 
 #### `analysis_enable_search`
 
@@ -331,7 +343,7 @@ enabled = true
 
 ### 普通链接可以解析，但 QQ 小程序不能解析
 
-确认适配器保留了 QQ JSON 卡片的平台元数据。`1.0.5` 会读取 `message_info.additional_config.platform_card_payloads`，并从小程序原始 payload 的 `qqdocurl` 提取精确短链；兼容旧链路直接放在结构化消息段中的 `qqdocurl`。
+确认适配器保留了 QQ JSON 卡片的平台元数据。`1.0.5` 开始读取 `message_info.additional_config.platform_card_payloads`，并从小程序原始 payload 的 `qqdocurl` 提取精确短链；兼容旧链路直接放在结构化消息段中的 `qqdocurl`。
 
 如果消息只剩 `[小程序] 哔哩哔哩：标题`，同时没有 `qqdocurl`、BV/AV 号或明确链接，插件不会按标题自动搜索。标题不能唯一定位视频，宁可不解析也不会发送可能错误的同名视频。
 
@@ -357,16 +369,16 @@ Bilibili 搜索接口可能返回 `-412` 或额外验证要求。插件会给出
 
 ### WebUI 开关提示已保存，但刷新后恢复原值
 
-请确认插件版本不低于 `1.0.2`。旧版本会把根级的 `analysis_display_image`、`analysis_enable_search` 等字段错误映射到 `general` 展示分区，Runner 校验时会忽略该无效分区。`1.0.2` 将展示分区的数据路径显式映射回配置根级，保存后应立即触发热更新。当前版本为 `1.0.5`。
+请确认插件版本不低于 `1.0.2`。更早版本会把根级的 `analysis_display_image`、`analysis_enable_search` 等字段错误映射到 `general` 展示分区，Runner 校验时会忽略该无效分区。`1.0.2` 将展示分区的数据路径显式映射回配置根级，保存后应立即触发热更新；`1.0.6` 进一步将这些字段迁入正式的 `[analysis]` 配置节，并自动兼容旧根级配置。当前版本为 `1.0.6`。
 
 ### 修改配置后多久生效
 
 插件支持配置热更新，但 watcher 只监听实际部署目录中的 `config.toml`。例如远端插件位于 `/home/superuser/maimai/MaiBot/plugins/bilibili-analyzer/` 时，必须修改该目录下的配置；修改工作区中未部署的副本不会影响运行实例。
 
-除 `plugin.enabled` 外，普通配置字段变化会触发 `on_config_update`：插件使用宿主已经校验并注入的新配置重建 HTTP 客户端，同时清空重复解析缓存，无需重启整个 MaiBot。成功时日志类似：
+除 `plugin.enabled` 外，普通配置字段变化会触发 `on_config_update`：插件使用宿主已经校验并注入的新配置重建 HTTP 客户端，同时清空重复解析缓存并重置全局过期清理时钟，无需重启整个 MaiBot。成功时日志类似：
 
 ```text
-Bilibili 解析配置已热更新: config_version=1.0.5，HTTP 客户端已重建，重复解析缓存已清空
+Bilibili 解析配置已热更新: config_version=1.0.6，HTTP 客户端已重建，重复解析缓存已清空
 ```
 
 `plugin.enabled` 是宿主管理的特殊字段：禁用时卸载插件，重新启用时再次加载插件，因此不走普通配置更新回调。

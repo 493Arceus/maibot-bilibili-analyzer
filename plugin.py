@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
+from copy import deepcopy
 from typing import Any, Literal
 
 import asyncio
@@ -35,16 +37,16 @@ class PluginSectionConfig(PluginConfigBase):
     __ui_order__ = 0
 
     enabled: bool = Field(default=True, description="是否启用 Bilibili 解析")
-    config_version: str = Field(default="1.0.5", description="配置版本")
+    config_version: str = Field(default="1.0.6", description="配置版本")
 
 
-class BilibiliPluginConfig(PluginConfigBase):
-    """Bilibili 解析插件配置。"""
+class AnalysisSectionConfig(PluginConfigBase):
+    """Bilibili 解析配置。"""
 
-    __ui_label__ = "Bilibili 解析"
+    __ui_label__ = "解析"
     __ui_icon__ = "video"
+    __ui_order__ = 1
 
-    plugin: PluginSectionConfig = Field(default_factory=PluginSectionConfig)
     analysis_images_size: str = Field(
         default="", description="普通图片缩放参数，例如 480w_90q"
     )
@@ -91,6 +93,34 @@ class BilibiliPluginConfig(PluginConfigBase):
     analysis_request_timeout: float = Field(
         default=20.0, ge=3.0, le=60.0, description="Bilibili 请求超时秒数"
     )
+
+
+class BilibiliPluginConfig(PluginConfigBase):
+    """Bilibili 解析插件配置。"""
+
+    __ui_label__ = "Bilibili 解析"
+    __ui_icon__ = "video"
+
+    plugin: PluginSectionConfig = Field(default_factory=PluginSectionConfig)
+    analysis: AnalysisSectionConfig = Field(default_factory=AnalysisSectionConfig)
+
+
+_LEGACY_ANALYSIS_FIELDS = (
+    "analysis_images_size",
+    "analysis_cover_images_size",
+    "analysis_whitelist",
+    "analysis_group_whitelist",
+    "analysis_blacklist",
+    "analysis_group_blacklist",
+    "analysis_desc_blacklist",
+    "analysis_reanalysis_time",
+    "analysis_display_image",
+    "analysis_display_image_list",
+    "analysis_enable_search",
+    "analysis_use_on_message",
+    "analysis_trust_env",
+    "analysis_request_timeout",
+)
 
 
 class MessageContext:
@@ -195,37 +225,61 @@ class BilibiliAnalyzerPlugin(MaiBotPlugin):
     """自动解析聊天消息中的 Bilibili 内容。"""
 
     config_model = BilibiliPluginConfig
+    _CACHE_CLEANUP_INTERVAL = 60.0
+    _MAX_STREAM_CACHE_SIZE = 1024
+    _MAX_URL_CACHE_SIZE = 128
 
     @classmethod
-    def build_config_schema(
-        cls,
-        *,
-        plugin_id: str = "",
-        plugin_name: str = "",
-        plugin_version: str = "",
-        plugin_description: str = "",
-        plugin_author: str = "",
-    ) -> dict[str, Any]:
-        schema = super().build_config_schema(
-            plugin_id=plugin_id,
-            plugin_name=plugin_name,
-            plugin_version=plugin_version,
-            plugin_description=plugin_description,
-            plugin_author=plugin_author,
+    def build_default_config(cls) -> dict[str, Any]:
+        defaults = super().build_default_config()
+        analysis_defaults = defaults.pop("analysis", None)
+        if isinstance(analysis_defaults, dict):
+            # Runner 2.7.1 会在版本升级时按默认配置骨架重建；使用旧根键作为
+            # 临时骨架可保住旧值，normalize_plugin_config 随后会迁移并删除它们。
+            for field_name in _LEGACY_ANALYSIS_FIELDS:
+                defaults[field_name] = deepcopy(analysis_defaults[field_name])
+        return defaults
+
+    def normalize_plugin_config(
+        self, config_data: Mapping[str, Any] | None
+    ) -> tuple[dict[str, Any], bool]:
+        raw_config = dict(config_data) if isinstance(config_data, Mapping) else {}
+        analysis_value = raw_config.get("analysis")
+        analysis_config = (
+            dict(analysis_value) if isinstance(analysis_value, Mapping) else None
         )
-        sections = schema.get("sections")
-        general_section = sections.get("general") if isinstance(sections, dict) else None
-        if isinstance(general_section, dict):
-            # SDK 的 general 是展示分区，而这些字段实际存储在 TOML 根级；
-            # Dashboard 会过滤点路径中的空片段，因此 "." 明确映射到配置根级。
-            general_section["name"] = "."
-        return schema
+        migrated = False
+
+        for field_name in _LEGACY_ANALYSIS_FIELDS:
+            if field_name not in raw_config:
+                continue
+            legacy_value = raw_config.pop(field_name)
+            migrated = True
+            if analysis_config is None and analysis_value is None:
+                analysis_config = {}
+            if analysis_config is not None and field_name not in analysis_config:
+                analysis_config[field_name] = legacy_value
+
+        if analysis_config is not None:
+            raw_config["analysis"] = analysis_config
+
+        # build_default_config() 暴露的是仅供 Runner 版本重建使用的旧根键骨架；
+        # 此处直接按正式嵌套模型补齐，避免 SDK 再次合入运输键并把同版本配置误报为变更。
+        normalized_config = self.config_model.model_validate(raw_config).model_dump(
+            mode="python"
+        )
+        return normalized_config, migrated or normalized_config != raw_config
 
     def __init__(self) -> None:
         super().__init__()
         self._client: BilibiliClient | None = None
         self._dedup_lock = asyncio.Lock()
         self._seen_urls: dict[str, dict[str, float]] = {}
+        self._last_cache_cleanup = time.monotonic()
+
+    def _reset_dedup_cache(self) -> None:
+        self._seen_urls.clear()
+        self._last_cache_cleanup = time.monotonic()
 
     async def on_load(self) -> None:
         self._client = self._create_client()
@@ -236,7 +290,7 @@ class BilibiliAnalyzerPlugin(MaiBotPlugin):
         self._client = None
         if client is not None:
             await client.close()
-        self._seen_urls.clear()
+        self._reset_dedup_cache()
 
     async def on_config_update(
         self, scope: str, config_data: dict[str, object], version: str
@@ -247,9 +301,15 @@ class BilibiliAnalyzerPlugin(MaiBotPlugin):
 
         old_client = self._client
         self._client = self._create_client()
-        if old_client is not None:
-            await old_client.close()
-        self._seen_urls.clear()
+        try:
+            if old_client is not None:
+                await old_client.close()
+        except Exception:
+            self.ctx.logger.exception(
+                "Bilibili 旧 HTTP 客户端关闭失败，配置热更新继续生效"
+            )
+        finally:
+            self._reset_dedup_cache()
         self.ctx.logger.info(
             "Bilibili 解析配置已热更新: config_version=%s，HTTP 客户端已重建，重复解析缓存已清空",
             self.config.plugin.config_version,
@@ -268,7 +328,9 @@ class BilibiliAnalyzerPlugin(MaiBotPlugin):
         self, message: Any = None, **kwargs: Any
     ) -> dict[str, str]:
         context = MessageContext.from_message(message, **kwargs)
-        text = context.content_text(self.config.analysis_use_on_message).strip()
+        text = context.content_text(
+            self.config.analysis.analysis_use_on_message
+        ).strip()
         if not text or text.startswith("搜视频") or not matches_bilibili_content(text):
             return {"action": "continue"}
         if not context.stream_id or not self._is_allowed(context):
@@ -287,7 +349,9 @@ class BilibiliAnalyzerPlugin(MaiBotPlugin):
     ) -> tuple[bool, str, int]:
         message = kwargs.pop("message", None)
         context = MessageContext.from_message(message, stream_id=stream_id, **kwargs)
-        if not self.config.analysis_enable_search or not self._is_allowed(context):
+        if not self.config.analysis.analysis_enable_search or not self._is_allowed(
+            context
+        ):
             return False, "", 0
 
         matched_groups = kwargs.get("matched_groups")
@@ -326,8 +390,8 @@ class BilibiliAnalyzerPlugin(MaiBotPlugin):
 
     def _create_client(self) -> BilibiliClient:
         timeout = ClientTimeout(
-            total=self.config.analysis_request_timeout,
-            connect=min(8.0, self.config.analysis_request_timeout),
+            total=self.config.analysis.analysis_request_timeout,
+            connect=min(8.0, self.config.analysis.analysis_request_timeout),
         )
         session = ClientSession(
             headers={
@@ -338,7 +402,7 @@ class BilibiliAnalyzerPlugin(MaiBotPlugin):
                 "Referer": "https://www.bilibili.com/",
             },
             timeout=timeout,
-            trust_env=self.config.analysis_trust_env,
+            trust_env=self.config.analysis.analysis_trust_env,
         )
         return BilibiliClient(session, self.ctx.logger)
 
@@ -349,17 +413,21 @@ class BilibiliAnalyzerPlugin(MaiBotPlugin):
 
     def _parse_options(self, group_id: str) -> ParseOptions:
         return ParseOptions(
-            cover_image_size=self.config.analysis_cover_images_size.strip(),
-            display_all_images=self.config.analysis_display_image,
-            display_image_types=frozenset(self.config.analysis_display_image_list),
-            image_size=self.config.analysis_images_size.strip(),
+            cover_image_size=self.config.analysis.analysis_cover_images_size.strip(),
+            display_all_images=self.config.analysis.analysis_display_image,
+            display_image_types=frozenset(
+                self.config.analysis.analysis_display_image_list
+            ),
+            image_size=self.config.analysis.analysis_images_size.strip(),
             include_description=group_id
-            not in {str(item) for item in self.config.analysis_desc_blacklist},
+            not in {str(item) for item in self.config.analysis.analysis_desc_blacklist},
         )
 
     def _is_allowed(self, context: MessageContext) -> bool:
-        user_whitelist = {str(item) for item in self.config.analysis_whitelist}
-        group_whitelist = {str(item) for item in self.config.analysis_group_whitelist}
+        user_whitelist = {str(item) for item in self.config.analysis.analysis_whitelist}
+        group_whitelist = {
+            str(item) for item in self.config.analysis.analysis_group_whitelist
+        }
         if context.user_id in user_whitelist or (
             context.group_id and context.group_id in group_whitelist
         ):
@@ -367,8 +435,10 @@ class BilibiliAnalyzerPlugin(MaiBotPlugin):
         if user_whitelist or group_whitelist:
             return False
 
-        user_blacklist = {str(item) for item in self.config.analysis_blacklist}
-        group_blacklist = {str(item) for item in self.config.analysis_group_blacklist}
+        user_blacklist = {str(item) for item in self.config.analysis.analysis_blacklist}
+        group_blacklist = {
+            str(item) for item in self.config.analysis.analysis_group_blacklist
+        }
         return context.user_id not in user_blacklist and (
             not context.group_id or context.group_id not in group_blacklist
         )
@@ -391,11 +461,34 @@ class BilibiliAnalyzerPlugin(MaiBotPlugin):
                 "Bilibili 解析失败，请稍后重试。", context.stream_id
             )
 
+    def _cleanup_expired_urls(self, now: float, ttl: int) -> None:
+        if now - self._last_cache_cleanup < self._CACHE_CLEANUP_INTERVAL:
+            return
+        self._last_cache_cleanup = now
+        if ttl <= 0:
+            return
+
+        for stream_id, stream_cache in list(self._seen_urls.items()):
+            expired_urls = [
+                url for url, seen_at in stream_cache.items() if now - seen_at >= ttl
+            ]
+            for url in expired_urls:
+                del stream_cache[url]
+            if not stream_cache:
+                del self._seen_urls[stream_id]
+
     async def _is_duplicate(self, stream_id: str, canonical_url: str) -> bool:
         now = time.monotonic()
-        ttl = self.config.analysis_reanalysis_time
+        ttl = self.config.analysis.analysis_reanalysis_time
         async with self._dedup_lock:
-            stream_cache = self._seen_urls.setdefault(stream_id, {})
+            self._cleanup_expired_urls(now, ttl)
+
+            # 字典保持插入顺序；取出后重新插入，使流级缓存具备 LRU 语义。
+            stream_cache = self._seen_urls.pop(stream_id, {})
+            self._seen_urls[stream_id] = stream_cache
+            while len(self._seen_urls) > self._MAX_STREAM_CACHE_SIZE:
+                del self._seen_urls[next(iter(self._seen_urls))]
+
             if ttl <= 0:
                 duplicate = canonical_url in stream_cache
                 self._seen_urls[stream_id] = {canonical_url: now}
@@ -408,7 +501,10 @@ class BilibiliAnalyzerPlugin(MaiBotPlugin):
                 del stream_cache[url]
             if canonical_url in stream_cache:
                 return True
+
             stream_cache[canonical_url] = now
+            while len(stream_cache) > self._MAX_URL_CACHE_SIZE:
+                del stream_cache[next(iter(stream_cache))]
             return False
 
     async def _send_content(self, content: ParsedContent, stream_id: str) -> None:
