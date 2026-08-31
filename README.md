@@ -307,45 +307,6 @@ analysis_group_blacklist = ["20000003"]
 
 Bilibili API、短链跳转和图片请求使用的总超时时间。连接超时最多为 8 秒，并且不会超过该值。网络较慢时可以适当增大，但过大会延长 Hook 等待时间。
 
-## 其他文件说明
-
-### `_manifest.json`
-
-这是 MaiBot 插件运行时的清单文件，通常不需要用户修改。
-
-- `manifest_version`：清单格式版本，当前为 `2`。
-- `id`：插件唯一 ID，当前为 `mengshouer.analysis-bilibili`。
-- `version`：插件版本。
-- `name`、`description`、`author`、`license`：展示和归属信息。
-- `urls`：仓库、主页、文档和问题反馈地址。
-- `host_application`：兼容的 MaiBot 版本范围。
-- `sdk`：兼容的 MaiBot Plugin SDK 版本范围。
-- `dependencies`：Runner 检查和安装的 Python 依赖。运行时以这里的约束为准。
-- `capabilities`：插件申请的宿主能力；当前为 `send.text` 和 `send.hybrid`。
-- `i18n`：本地化资源声明。
-- `plugin_type`：插件类型，当前为第三方扩展 `extension`。
-- `display`：WebUI 图标与颜色配置。
-
-随意修改 `id`、兼容范围、依赖或能力声明，可能导致插件无法加载、被识别成另一个插件，或无法发送消息。
-
-### `requirements.txt`
-
-用于独立环境手动安装依赖：
-
-```text
-aiohttp>=3.12.14,<4
-```
-
-MaiBot Runner 安装插件依赖时以 `_manifest.json` 的 `dependencies` 为准；修改依赖版本时应同步更新这两个文件。
-
-### `plugin.py`
-
-插件入口、配置模型、消息 Hook、搜索命令、权限判断、去重和消息发送逻辑。工厂入口为 `create_plugin()`。
-
-### `bilibili.py`
-
-链接和编号识别、短链跳转、Bilibili API 请求、WBI 签名、内容格式化和图片下载逻辑。
-
 ## 常见问题
 
 ### WebUI 能看到插件，但启用后仍显示未激活
