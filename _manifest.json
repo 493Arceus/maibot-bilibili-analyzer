@@ -44,9 +44,10 @@
   "plugin_type": "extension",
   "display": {
     "icon": {
-      "type": "lucide",
-      "value": "video",
-      "background": "#E5484D"
+      "type": "local",
+      "value": "assets/icon.png",
+      "fallback": "video",
+      "background": "#FFFFFF"
     }
   }
 }

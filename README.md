@@ -39,6 +39,8 @@ git clone https://github.com/493Arceus/maibot-bilibili-analyzer.git plugins/bili
 MaiBot/
 └── plugins/
     └── bilibili-analyzer/
+        ├── assets/
+        │   └── icon.png
         ├── _manifest.json
         ├── plugin.py
         ├── bilibili.py
