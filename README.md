@@ -393,6 +393,10 @@ Bilibili 解析配置已热更新: config_version=1.0.6，HTTP 客户端已重�
 - 图片下载限制为 10 MiB。
 - 插件清单中只申请文本和图文发送能力，不申请数据库或文件写入能力。
 
+## Contributors
+
+- Codex（OpenAI）：AI 编程协助，参与插件迁移、兼容适配、测试与发布。
+
 ## 维护、致谢与许可证
 
 当前维护者：[493Arceus](https://github.com/493Arceus)
