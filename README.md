@@ -25,6 +25,8 @@
 
 兼容范围以 `_manifest.json` 为准。
 
+当前发行版本为 `1.0.7`。本次仅更新宿主兼容范围，配置结构版本 `plugin.config_version` 仍为 `1.0.6`，升级无需迁移配置。
+
 ## 安装
 
 在 MaiBot 根目录执行：
@@ -60,7 +62,7 @@ python -m pip install -r requirements.txt
 安装后启动 MaiBot，或等待插件文件 watcher 自动重载。正常加载时可以看到类似日志：
 
 ```text
-插件 mengshouer.analysis-bilibili v1.0.6 加载成功
+插件 mengshouer.analysis-bilibili v1.0.7 加载成功
 插件 mengshouer.analysis-bilibili 注册完成
 Bilibili 解析插件已加载
 ```
@@ -369,7 +371,7 @@ Bilibili 搜索接口可能返回 `-412` 或额外验证要求。插件会给出
 
 ### WebUI 开关提示已保存，但刷新后恢复原值
 
-请确认插件版本不低于 `1.0.2`。更早版本会把根级的 `analysis_display_image`、`analysis_enable_search` 等字段错误映射到 `general` 展示分区，Runner 校验时会忽略该无效分区。`1.0.2` 将展示分区的数据路径显式映射回配置根级，保存后应立即触发热更新；`1.0.6` 进一步将这些字段迁入正式的 `[analysis]` 配置节，并自动兼容旧根级配置。当前版本为 `1.0.6`。
+请确认插件版本不低于 `1.0.2`。更早版本会把根级的 `analysis_display_image`、`analysis_enable_search` 等字段错误映射到 `general` 展示分区，Runner 校验时会忽略该无效分区。`1.0.2` 将展示分区的数据路径显式映射回配置根级，保存后应立即触发热更新；`1.0.6` 进一步将这些字段迁入正式的 `[analysis]` 配置节，并自动兼容旧根级配置。当前发行版本为 `1.0.7`，配置结构版本仍为 `1.0.6`。
 
 ### 修改配置后多久生效
 

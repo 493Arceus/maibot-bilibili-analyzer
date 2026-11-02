@@ -1,6 +1,6 @@
 {
   "manifest_version": 2,
-  "version": "1.0.6",
+  "version": "1.0.7",
   "name": "Bilibili 内容解析",
   "description": "自动解析 Bilibili 视频、番剧、直播、专栏和动态，并支持视频搜索",
   "author": {

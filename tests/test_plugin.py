@@ -176,12 +176,16 @@ def _config_with_ttl(ttl: int):
     )
 
 
-def test_manifest_and_default_config_versions_match() -> None:
+def test_release_manifest_preserves_config_schema_version() -> None:
     manifest = json.loads((PLUGIN_ROOT / "_manifest.json").read_text(encoding="utf-8"))
 
-    assert manifest["version"] == "1.0.6"
+    assert manifest["version"] == "1.0.7"
+    assert manifest["host_application"] == {
+        "min_version": "1.2.0",
+        "max_version": "1.3.99",
+    }
     assert manifest["i18n"] == {"default_locale": "zh-CN"}
-    assert plugin_module.PluginSectionConfig().config_version == manifest["version"]
+    assert plugin_module.PluginSectionConfig().config_version == "1.0.6"
 
 
 def test_schema_exposes_plugin_and_analysis_sections() -> None:
